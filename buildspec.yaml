@@ -1,0 +1,126 @@
+version: 0.2
+
+env:
+  parameter-store:
+    # DYNATRACE_ID: "/monitoring/dynatrace/environment-id"
+    # DYNATRACE_URL: "/monitoring/dynatrace/url"
+    # DYNATRACE_PASSWORD: "/monitoring/dynatrace/paas-token"
+    # DYNATRACE_CUSTOM_PROP: "/monitoring/dynatrace/custom-prop"
+    CSRF_TOKEN: "/webapp/csrf-token"
+    RECAPTCHA: "/PLT-WAS/RECAPTCHA_V2_KEY"
+    GOOGLE_TAG_MANAGER_ID: "/webapp/gtm-id"
+    BRAND_NAME_VALUE: "/env/brand-name"
+    BASE_GATEWAY_URL_VALUE: "/env/base-gateway-url"
+    CMS_MEDIA_CDN_DOMAIN_VALUE: "/env/cms-media-cdn-domain"
+    CDN_SKIN_DOMAIN_VALUE: "/env/cdn-skin-domain"
+    NEXT_PUBLIC_APP_ENV_VALUE: "/env/next-public-app"
+    CDN_BMS_VALUE: "/env/cdn-bms"
+    CDN_NMS_VALUE: "/env/cdn-nms"
+    REGION_CODE_VALUE: "/env/region-code"
+    ELB_VALUE: /env/elb
+    SENTRY_AUTH_TOKEN: "/env/sentry-auth-token" 
+    STRAPI_URL: "/strapi/strapi_url"
+    STRAPI_ACCESS_TOKEN: "/strapi/strapi_access_token"
+    EXPERIAN_TOKEN: "/env/experian-token"
+    GITHUB_TOKEN: "/env/github-token"
+    FONT_AWESOME_TOKEN: "/env/font-awesome-token"
+
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com
+      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+      - IMAGE_TAG=${COMMIT_HASH:=latest}
+  build:
+    commands:
+      - echo  repo name is ${IMAGE_REPO_NAME} and tag is ${IMAGE_TAG}
+
+      # - echo testing the values store in ssm ID=${DYNATRACE_ID} 
+      # - echo URL=${DYNATRACE_URL}
+      # - echo Paas-token=${DYNATRACE_PASSWORD}
+      - echo csrf-token=${CSRF_TOKEN}
+      - echo ${GITHUB_TOKEN}
+      - echo $GITHUB_TOKEN
+      - echo ${FONT_AWESOME_TOKEN}
+      - echo $FONT_AWESOME_TOKEN
+      - cd $CODEBUILD_SRC_DIR
+      - echo $PWD
+      - sed -i 's/CONFIG_BRAND="prettylittlething"/CONFIG_BRAND='"${BRAND_NAME_VALUE}"'/g' .env
+      - sed -i '/BASE_GATEWAY_URL/c\BASE_GATEWAY_URL='"${BASE_GATEWAY_URL_VALUE}"'' .env
+      - sed -i '/CMS_MEDIA_CDN_DOMAIN/c\CMS_MEDIA_CDN_DOMAIN='"${CMS_MEDIA_CDN_DOMAIN_VALUE}"'' .env
+      - sed -i '/CDN_SKIN_DOMAIN/c\CDN_SKIN_DOMAIN='"${CDN_SKIN_DOMAIN_VALUE}"'' .env
+      - echo 'SENTRY_AUTH_TOKEN='"${SENTRY_AUTH_TOKEN}"'' >> .env
+      - sed -i '/NEXT_PUBLIC_APP_ENV/c\NEXT_PUBLIC_APP_ENV='"${NEXT_PUBLIC_APP_ENV_VALUE}"'' .env
+      - sed -i '/ENABLED_FEATURES/c\ENABLED_FEATURES=\"\"' .env
+      - sed -i '/CDN_BMS/c\CDN_BMS='"${CDN_BMS_VALUE}"'' .env
+      - sed -i '/CDN_NMS/c\CDN_NMS='"${CDN_NMS_VALUE}"'' .env
+      - sed -i '/GOOGLE_TAG_MANAGER_ID/c\GOOGLE_TAG_MANAGER_ID='"${GOOGLE_TAG_MANAGER_ID}"'' .env
+      - sed -i '/STRAPI_URL/c\STRAPI_URL='"${STRAPI_URL}"'' .env
+      - sed -i '/STRAPI_ACCESS_TOKEN/c\STRAPI_ACCESS_TOKEN='"${STRAPI_ACCESS_TOKEN}"'' .env
+      - sed -i '/EXPERIAN_AUTH/c\EXPERIAN_AUTH='"${EXPERIAN_AUTH}"'' .env      
+      - echo 'REGION_CODE='"${REGION_CODE_VALUE}"'' >> .env
+      - sed -i '/CSRF_SECRET/c\CSRF_SECRET='"${CSRF_TOKEN}"'' .env
+      - echo 'NEXT_PUBLIC_GOOGLE_RECAPTCHA_V2_KEY='"${RECAPTCHA}"'' >> .env
+      - echo 'ELB='"${ELB_VALUE}"'' >> .env
+      - echo 'EXPERIAN_TOKEN='"${EXPERIAN_TOKEN}"'' >> .env
+      - echo 'GITHUB_TOKEN='"${GITHUB_TOKEN}"'' >> .env
+      - echo 'FONT_AWESOME_TOKEN='"${FONT_AWESOME_TOKEN}"'' >> .env
+      - cat $CODEBUILD_SRC_DIR/.env
+      #- docker login -u $DYNATRACE_ID https://${DYNATRACE_ID}.live.dynatrace.com/ -p $DYNATRACE_PASSWORD
+      #- docker build --build-arg FONT_AWESOME_TOKEN="${FONT_AWESOME_TOKEN}" --build-arg GITHUB_TOKEN="${GITHUB_TOKEN}" --build-arg DYNATRACE_IMAGE="${DYNATRACE_ID}.live.dynatrace.com/linux/oneagent-codemodules-musl:all" --build-arg DYNATRACE_ID="${DYNATRACE_ID}" --build-arg DYNATRACE_CUSTOM_PROP="${DYNATRACE_CUSTOM_PROP}" --tag ${IMAGE_REPO_NAME}:latest --no-cache .
+      - docker build --build-arg FONT_AWESOME_TOKEN="${FONT_AWESOME_TOKEN}" --build-arg GITHUB_TOKEN="${GITHUB_TOKEN}" --tag ${IMAGE_REPO_NAME}:latest --no-cache .
+      - docker tag ${IMAGE_REPO_NAME}:latest ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE_REPO_NAME}:${IMAGE_TAG} 
+  post_build:
+    commands:
+      - echo Build completed on `date`
+      - echo Pushing the Docker image...
+      - docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE_REPO_NAME}:${IMAGE_TAG}
+
+      - echo Starting taskdef replacement ...
+      - cat iac/buildspec/$ENVIRONMENT/$AWS_DEFAULT_REGION/taskdef.json
+      - cat iac/buildspec/$ENVIRONMENT/$AWS_DEFAULT_REGION/taskdef.json | sed "s|CURENT_REGION|$AWS_DEFAULT_REGION|;s|TASK_EXECUTION_ROLE|$TASK_EXECUTION_ROLE|;s|ECS_LOGGROUP|$ECS_LOGGROUP|;s|TASK_ROLE|$TASK_ROLE|;s|CONTAINER_NAME|$CONTAINER_NAME|;s|TASK_DEF_FAMILY|$TASK_DEF_FAMILY|" > taskdef.json
+      - cat taskdef.json
+      #- echo adding envs to taskdef....
+      #- ENV_CONFIG=`jq '.' -Rsa iac/terraform/warehouse/$ENVIRONMENT/cicd/$REGION/.env.$REGION`
+      #- echo $ENV_CONFIG
+      #- sed "s|ENV_CONFIG|$ENV_CONFIG|g" taskdef_td.json | sed "s|\"\"\[|\[|;s|\"\"\,|\,|" > taskdef_config.json
+      #- jq --arg ENV_CONFIG "$ENV_CONFIG" '.containerDefinitions[].environment[] = $ENV_CONFIG' taskdef_temp.json | sed 's/\\n/\n/g; s/\\//g' > taskdef.json
+      #- cat taskdef_config.json
+      #- ENV_SECRETS=`jq '.' -Rsa iac/terraform/warehouse/$ENVIRONMENT/cicd/$REGION/.secrets.$REGION`
+      #- echo $ENV_SECRETS
+      #- sed "s|ENV_SECRETS|$ENV_SECRETS|g" taskdef_config.json | sed "s|\"\"\[|\[|;s|\"\"\,|\,|" > taskdef.json
+      #- cat taskdef.json
+      - echo Starting appspec replacement ...
+      - echo $CODEBUILD_SRC_DIR
+      - ls iac/buildspec/$ENVIRONMENT/$AWS_DEFAULT_REGION
+      - cat iac/buildspec/$ENVIRONMENT/$AWS_DEFAULT_REGION/appspec.yaml
+      - cat iac/buildspec/$ENVIRONMENT/$AWS_DEFAULT_REGION/appspec.yaml | sed "s|CONTAINER_NAME|$CONTAINER_NAME|" > appspec.yaml
+      - cat appspec.yaml
+      - echo Writing image definitions file...
+      #- printf '{"ImageURI":"'$FULL_ECR_REGISTRY'":"'$IMAGE_TAG'"}' > imageDetail.json
+      - printf '{"ImageURI":"%s"}' $FULL_ECR_REGISTRY:$IMAGE_TAG > imageDetail.json
+      - cat imageDetail.json
+      - echo Build completed on `date`
+      - echo "appspec.yaml"
+      - cat appspec.yaml
+      - echo "taskdef.json"
+      - cat taskdef.json
+
+artifacts:
+  files:
+    - "image*.json"
+    - "appspec.yaml"
+    - "taskdef.json"
+  secondary-artifacts:
+    DefinitionArtifact:
+      files:
+        - "appspec.yaml"
+        - "taskdef.json"
+    ImageArtifact:
+      files:
+        - imageDetail.json
+  # artifacts: 
+  #   files: - Warehouse-WebApp/*
+  #      #'/**/*'
+  #     discard-paths: yes
